@@ -4,7 +4,7 @@ use polars::prelude::PolarsError;
 use polars::prelude::python_dsl::PythonScanSource;
 use polars_plan::plans::{ExprToIRContext, IR, to_expr_ir};
 use polars_plan::prelude::expr_ir::ExprIR;
-use polars_plan::prelude::{AExpr, PythonOptions};
+use polars_plan::prelude::{AExpr, PythonOptions, node_to_expr};
 use polars_utils::arena::{Arena, Node};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -224,6 +224,12 @@ impl NodeTraverser {
     /// Unset the expression mapping (reinstates the identity map)
     fn unset_expr_mapping(&mut self) {
         self.expr_mapping = None;
+    }
+
+    fn expr_str(&self, node: usize) -> PyResult<String> {
+        let expr_arena = self.expr_arena.lock().unwrap();
+        let expr = node_to_expr(Node(node), &expr_arena);
+        Ok(expr.to_string())
     }
 }
 
