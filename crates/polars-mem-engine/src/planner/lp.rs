@@ -9,8 +9,7 @@ use recursive::recursive;
 use self::python_dsl::PythonScanSource;
 use super::*;
 use crate::executors::{
-    self, CachePrefiller, Executor, GroupByStreamingExec, PartitionedSinkExecutor, SinkExecutor,
-    sink_name,
+    self, CachePrefiller, Executor, PartitionedSinkExecutor, SinkExecutor, sink_name,
 };
 use crate::scan_predicate::functions::create_scan_predicate;
 
@@ -243,7 +242,6 @@ fn create_physical_plan_impl(
             lp_arena.get(root),
             IR::Scan { .. } // Needed for the streaming impl
                 | IR::Cache { .. } // Needed for plans branching from the same cache node
-                | IR::GroupBy { .. } // Needed for the streaming impl
                 | IR::Sink { // Needed for the streaming impl
                     payload: SinkTypeIR::Partition(_),
                     ..
@@ -633,7 +631,7 @@ fn create_physical_plan_impl(
             keys,
             aggs,
             apply,
-            schema: _,
+            schema,
             maintain_order,
             options,
         } => {
@@ -693,33 +691,27 @@ fn create_physical_plan_impl(
                         false
                     }
                 });
-                let builder =
-                    build_streaming_executor.expect("invalid build. Missing feature new-streaming");
-
                 let input = recurse!(input, state)?;
-                let executor = Box::new(GroupByStreamingExec::new(
+                let keys = keys
+                    .iter()
+                    .map(|e| e.to_expr(expr_arena))
+                    .collect::<Vec<_>>();
+                let aggs = aggs
+                    .iter()
+                    .map(|e| e.to_expr(expr_arena))
+                    .collect::<Vec<_>>();
+                Ok(Box::new(executors::PartitionGroupByExec::new(
                     input,
-                    builder,
-                    root,
-                    lp_arena,
-                    expr_arena,
                     phys_keys,
                     phys_aggs,
                     maintain_order,
-                    _slice,
+                    options.slice,
+                    input_schema,
+                    schema,
                     from_partitioned_ds,
-                ));
-
-                // Use cache so that this runs during the cache pre-filling stage and not on the
-                // thread pool, it could deadlock since the streaming engine uses the thread
-                // pool internally.
-                let mut prefill = executors::CachePrefill::new_sink(executor);
-                let exec = prefill.make_exec();
-                let existing = cache_nodes.insert(prefill.id(), prefill);
-
-                assert!(existing.is_none());
-
-                Ok(Box::new(exec))
+                    keys,
+                    aggs,
+                )))
             } else {
                 let input = recurse!(input, state)?;
                 Ok(Box::new(executors::GroupByExec::new(
