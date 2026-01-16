@@ -273,6 +273,22 @@ def test_glob_n_rows(io_files_path: Path) -> None:
     }
 
 
+@pytest.mark.write_disk
+def test_scan_csv_multiple_files_skip_rows_overflow() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        
+        for i in range(2):
+            file_path = tmp_path / f"test_{i}.csv"
+            file_path.write_text("foo,bar,baz\n1,2,3\n4,5,6")
+        
+        paths = [tmp_path / "test_0.csv", tmp_path / "test_1.csv"]
+        
+        df = pl.scan_csv(paths, n_rows=4, skip_rows=2).collect()
+        
+        assert df.shape == (0, 3)
+        assert df.columns == ["4", "5", "6"]
+
 def test_scan_csv_schema_overwrite_not_projected_8483(foods_file_path: Path) -> None:
     df = (
         pl.scan_csv(
