@@ -17,6 +17,39 @@ use super::expr_nodes::PyGroupbyOptions;
 use crate::PyDataFrame;
 use crate::lazyframe::visit::PyExprIR;
 
+pub(crate) fn serialize_scan_type(
+    scan_type: &FileScanIR,
+) -> PyResult<Option<(&'static str, String)>> {
+    let parts = match scan_type {
+        #[cfg(feature = "csv")]
+        FileScanIR::Csv { options } => Some((
+            "csv",
+            serde_json::to_string(options)
+                .map_err(|err| PyValueError::new_err(format!("{err:?}")))?,
+        )),
+        #[cfg(feature = "parquet")]
+        FileScanIR::Parquet { options, metadata: _ } => Some((
+            "parquet",
+            serde_json::to_string(options)
+                .map_err(|err| PyValueError::new_err(format!("{err:?}")))?,
+        )),
+        #[cfg(feature = "json")]
+        FileScanIR::NDJson { options } => Some((
+            "ndjson",
+            serde_json::to_string(options)
+                .map_err(|err| PyValueError::new_err(format!("{err:?}")))?,
+        )),
+        #[cfg(feature = "ipc")]
+        FileScanIR::Ipc { options: _, metadata: _ } => None,
+        #[cfg(feature = "scan_lines")]
+        FileScanIR::Lines { name: _ } => None,
+        FileScanIR::ExpandedPaths { name: _ } => None,
+        FileScanIR::PythonDataset { dataset_object: _, cached_ir: _ } => None,
+        FileScanIR::Anonymous { options: _, function: _ } => None,
+    };
+    Ok(parts)
+}
+
 fn scan_type_to_pyobject(
     py: Python<'_>,
     scan_type: &FileScanIR,
@@ -24,33 +57,30 @@ fn scan_type_to_pyobject(
 ) -> PyResult<Py<PyAny>> {
     match scan_type {
         #[cfg(feature = "csv")]
-        FileScanIR::Csv { options } => {
-            let options = serde_json::to_string(options)
-                .map_err(|err| PyValueError::new_err(format!("{err:?}")))?;
+        FileScanIR::Csv { .. } => {
+            let (typ, options) = serialize_scan_type(scan_type)?.unwrap();
             let cloud_options = serde_json::to_string(cloud_options)
                 .map_err(|err| PyValueError::new_err(format!("{err:?}")))?;
-            Ok(("csv", options, cloud_options).into_py_any(py)?)
+            (typ, options, cloud_options).into_py_any(py)
         },
         #[cfg(feature = "parquet")]
-        FileScanIR::Parquet { options, .. } => {
-            let options = serde_json::to_string(options)
-                .map_err(|err| PyValueError::new_err(format!("{err:?}")))?;
+        FileScanIR::Parquet { .. } => {
+            let (typ, options) = serialize_scan_type(scan_type)?.unwrap();
             let cloud_options = serde_json::to_string(cloud_options)
                 .map_err(|err| PyValueError::new_err(format!("{err:?}")))?;
-            Ok(("parquet", options, cloud_options).into_py_any(py)?)
+            (typ, options, cloud_options).into_py_any(py)
         },
         #[cfg(feature = "ipc")]
         FileScanIR::Ipc { .. } => Err(PyNotImplementedError::new_err("ipc scan")),
         #[cfg(feature = "json")]
-        FileScanIR::NDJson { options, .. } => {
-            let options = serde_json::to_string(options)
-                .map_err(|err| PyValueError::new_err(format!("{err:?}")))?;
-            Ok(("ndjson", options).into_py_any(py)?)
+        FileScanIR::NDJson { .. } => {
+            let (typ, options) = serialize_scan_type(scan_type)?.unwrap();
+            (typ, options).into_py_any(py)
         },
         #[cfg(feature = "scan_lines")]
-        FileScanIR::Lines { name } => Ok(("lines", name.as_str()).into_py_any(py)?),
+        FileScanIR::Lines { name } => ("lines", name.as_str()).into_py_any(py),
         FileScanIR::ExpandedPaths { name } => {
-            Ok(("expanded-paths", name.as_str()).into_py_any(py)?)
+            ("expanded-paths", name.as_str()).into_py_any(py)
         },
         FileScanIR::PythonDataset { .. } => {
             Err(PyNotImplementedError::new_err("python dataset scan"))

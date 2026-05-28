@@ -76,6 +76,11 @@ impl NodeTraverser {
         (self.lp_arena.clone(), self.expr_arena.clone())
     }
 
+    /// The current root [`Node`] in the plan arena.
+    pub fn root(&self) -> Node {
+        self.root
+    }
+
     fn fill_inputs(&mut self) {
         let lp_arena = self.lp_arena.lock().unwrap();
         let this_node = lp_arena.get(self.root);

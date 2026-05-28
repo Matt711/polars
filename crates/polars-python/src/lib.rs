@@ -17,6 +17,7 @@ pub mod cloud_client;
 #[cfg(feature = "polars_cloud_server")]
 pub mod cloud_server;
 pub mod conversion;
+pub mod cudf;
 pub mod dataframe;
 pub mod dataset;
 pub mod datatypes;
